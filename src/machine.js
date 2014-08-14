@@ -1,11 +1,9 @@
 var _ = require('mori');
 
-var commands =
-  ['vbox', 'hbox', 'close', 'pad', '"'];
-
 var pt = function(x, y) {
   return {x: x, y: y};
 }
+var zero = pt(0,0);
 var vp = function(p1, p2) {
   return pt(p1.x+p2.x, p1.y+p2.y);
 }
@@ -13,17 +11,16 @@ var vp = function(p1, p2) {
 var horizontal = 'h';
 var vertical   = 'v';
 
-var new_frame = function() {
-  return {
-    base: pt(0,0),
-    offset: pt(0,0),
-    w: 0,
-    h: 0,
-    mode: horizontal,
-  };
+var new_frame = function(base, mode) {
+  return _.hash_map(
+      "base", base,
+      "offset", zero,
+      "w", 0,
+      "h", 0,
+      "mode", mode);
 }
 var init_stack = _.hash_map(
-    "stack", _.list(new_frame()),
+    "stack", _.list(new_frame(zero, horizontal)),
     "out", _.list());
 
 var top = function(stack) {
@@ -31,16 +28,16 @@ var top = function(stack) {
 }
 var loc = function(stack) {
   var fr = top(stack);
-  return vp(fr.base, fr.offset);
+  return vp(
+      _.get(fr, "base"),
+      _.get(fr, "offset"));
 }
 var push_frame = function(env, mode) {
-  var fr = new_frame();
-  if (mode) {
-    fr.mode = mode;
+  if (mode === null) {
+    mode = horizontal;
   }
   return _.update_in(env, ["stack"], function(stack) {
-    var l = loc(stack);
-    fr.base = loc(stack);
+    var fr = new_frame(loc(stack), mode);
     return _.cons(fr, stack);
   });
 }
@@ -49,23 +46,23 @@ var append_primitive = function(prim, env) {
   var fr = top(stack);
   var pos = loc(stack);
 
-  var offset;
-  if (fr.mode === horizontal) {
-    offset = vp(fr.offset, pt(prim.w, 0));
-  } else if (fr.mode === vertical) {
-    offset = vp(fr.offset, pt(0, prim.h));
+  var offset = _.get(fr, "offset");
+  var mode = _.get(fr, "mode");
+  if (mode === horizontal) {
+    var offset2 = vp(offset, pt(prim.w, 0));
+  } else if (mode === vertical) {
+    var offset2 = vp(offset, pt(0, prim.h));
   } else {
     console.log('ERROR mode:', fr.mode);
     return env;
   }
 
-  var fr2 = {
-    base: fr.base,
-    offset: offset,
-    w: Math.max(fr.w, offset.x + prim.w),
-    h: Math.max(fr.h, offset.y + prim.h),
-    mode: fr.mode,
-  };
+  var fr2 = _.hash_map(
+    "base", _.get(fr, "base"),
+    "offset", offset2,
+    "w", Math.max(_.get(fr, "w"), offset.x + prim.w),
+    "h", Math.max(_.get(fr, "h"), offset.y + prim.h),
+    "mode", mode);
 
   var new_out = prim.fn(pos);
 
@@ -80,19 +77,29 @@ var pop_frame = function(env) {
   var fr = top(stack);
   var stack2 = _.rest(stack);
   var fr2 = top(stack2);
-  fr2.w = Math.max(fr2.w, fr.base.x - fr2.base.x + fr.w);
-  fr2.h = Math.max(fr2.h, fr.base.y - fr2.base.y + fr.h);
-  var offset;
-  if (fr2.mode === horizontal) {
-    offset = vp(fr2.offset, pt(fr.w, 0));
-  } else if (fr2.mode === vertical) {
-    offset = vp(fr2.offset, pt(0, fr.h));
+  var w3 = Math.max(_.get(fr2, "w"), _.get(fr, "base").x - _.get(fr2, "base").x + _.get(fr, "w"));
+  var h3 = Math.max(_.get(fr2, "h"), _.get(fr, "base").y - _.get(fr2, "base").y + _.get(fr, "h"));
+  var mode = _.get(fr2, "mode");
+  var offset = _.get(fr2, "offset");
+  console.log('off: ', offset);
+  if (mode === horizontal) {
+    offset = vp(offset, pt(_.get(fr, "w"), 0));
+    console.log('hoff: ', offset);
+  } else if (mode === vertical) {
+    offset = vp(offset, pt(0, _.get(fr, "h")));
+    console.log('voff: ', offset);
   } else {
-    console.log('ERROR mode:', fr2.mode);
+    console.log('ERROR mode:', mode);
     return env;
   }
-  fr2.offset = offset;
-  return _.assoc(env, "stack", stack2)
+  console.log('off: ', offset);
+  var fr3 = _.hash_map(
+    "base", _.get(fr2, "base"),
+    "offset", offset,
+    "w", w3,
+    "h", h3,
+    "mode", mode);
+  return _.assoc(env, "stack", _.cons(fr3, _.rest(stack2)));
 }
 
 // TODO
@@ -120,11 +127,14 @@ var draw_chars = function(env) {
 
 }
 
-var init = function() {
+var init_canvas = function() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
   ctx.fillStyle = "#fff";
   ctx.font = '20pt monospace';
+}
+var init = function() {
+  init_canvas();
 
   var s = init_stack;
   var str1 = "abcdefghijklmn";
@@ -172,12 +182,18 @@ var init = function() {
 }
 
 module.exports = {
-  init: init,
+  horizontal: horizontal,
+  vertical: vertical,
+
   init_stack: init_stack,
   push_frame: push_frame,
   append_primitive: append_primitive,
   pop_frame: pop_frame,
   top: top,
 
+  char_prim: char_prim,
   draw_chars: draw_chars,
+
+  init_canvas: init_canvas,
+  init: init,
 };
